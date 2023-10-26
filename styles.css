@@ -51,9 +51,22 @@ nav a:hover {
 }
 
 article h2 {
-    border-bottom: 1px solid #ddd;
     padding-bottom: 10px;
     margin-bottom: 20px;
+}
+
+.articles-container {
+    /* Allow it to take all available horizontal space */
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    /* Provides spacing between articles */
+    gap: 20px;
+}
+
+article {
+    width: 100%;
+    border-bottom: 1px solid #ddd;
 }
 
 .search-container {
@@ -105,8 +118,8 @@ aside img:hover {
     transform: scale(1.05);
 }
 
-/* Media Query for screens less than 600 pixels wide */
-@media only screen and (max-width: 600px) {
+/* Media Query for screens less than 700 pixels wide */
+@media only screen and (max-width: 700px) {
     body {
         background-color: #ffffff;
         display: block;
