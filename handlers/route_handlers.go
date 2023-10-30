@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -21,13 +22,13 @@ func InitRoutes(templateFS embed.FS, staticFiles embed.FS) {
 	var err error
 	tmpl, err = template.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
-		// Handle error
+		log.Fatal(err)
 	}
 
 	// Serve static files
 	staticFS, err := fs.Sub(staticFiles, "static")
 	if err != nil {
-		// Handle error
+		log.Fatal(err)
 	}
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
