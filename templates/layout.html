@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <link rel="preload" href="static/css/styles.css" as="style">
+    <link rel="stylesheet" href="static/css/styles.css">
+</head>
+
+<body>
+
+    <div class="container">
+        <header>
+            <div class="logo-link">
+                <img src="static/images/logo.png"
+                    alt="blunderbytes.com - 🔥💻 Your Daily Dose of Digital Disasters 🔥💻" loading="lazy">
+            </div>
+
+        </header>
+        <nav>
+            <a href="#">HOME</a>
+            <a href="#">SHARE YOUR TECH FAIL</a>
+        </nav>
+        <main>
+            {{template "content" .}}
+        </main>
+        <footer>
+            <!-- Footer content, e.g. copyrights, links etc. -->
+        </footer>
+    </div>
+</body>
+
+</html>

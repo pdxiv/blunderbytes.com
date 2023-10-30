@@ -15,12 +15,26 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var tmpl *template.Template
+var homeTmpl *template.Template
+var loginTmpl *template.Template
+var uploadTmpl *template.Template
 
 func InitRoutes(templateFS embed.FS, staticFiles embed.FS) {
-	// Initialize tmpl variable
+	// Initialize homeTmpl
 	var err error
-	tmpl, err = template.ParseFS(templateFS, "templates/*.html")
+	homeTmpl, err = template.ParseFS(templateFS, "templates/layout.html", "templates/index.html")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Initialize loginTmpl
+	loginTmpl, err = template.ParseFS(templateFS, "templates/layout.html", "templates/login.html")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Initialize uploadTmpl
+	uploadTmpl, err = template.ParseFS(templateFS, "templates/layout.html", "templates/upload.html")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -41,11 +55,25 @@ func InitRoutes(templateFS embed.FS, staticFiles embed.FS) {
 }
 
 func HomeHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl.ExecuteTemplate(w, "index.html", nil)
+	data := map[string]interface{}{
+		"Title": "Home",
+	}
+
+	err := homeTmpl.ExecuteTemplate(w, "layout.html", data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func NewHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl.ExecuteTemplate(w, "upload.html", nil)
+	data := map[string]interface{}{
+		"Title": "New",
+	}
+
+	err := uploadTmpl.ExecuteTemplate(w, "layout.html", data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +107,14 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		// Redirect or respond to the client as needed
 		http.Redirect(w, r, "/welcome", http.StatusSeeOther)
 	} else {
-		tmpl.ExecuteTemplate(w, "login.html", nil)
+		data := map[string]interface{}{
+			"Title": "Login",
+		}
+
+		err := loginTmpl.ExecuteTemplate(w, "layout.html", data)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	}
 }
 

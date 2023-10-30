@@ -1,11 +1,5 @@
-<!DOCTYPE html>
-<html>
-
-<head>
-    <title>Blog Entry Upload</title>
-</head>
-
-<body>
+{{define "content"}}
+<div class="articles-container">
     <h1>Create a New Blog Entry</h1>
     <form action="/upload" method="post" enctype="multipart/form-data">
         <label for="title">Title:</label>
@@ -16,6 +10,5 @@
         <input type="file" name="file"><br><br>
         <input type="submit" value="Create Blog Entry">
     </form>
-</body>
-
-</html>
+</div>
+{{end}}
