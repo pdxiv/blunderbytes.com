@@ -15,28 +15,22 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var homeTmpl *template.Template
-var loginTmpl *template.Template
-var uploadTmpl *template.Template
+type TemplateData struct {
+	Title string
+}
+
+var templates map[string]*template.Template
 
 func InitRoutes(templateFS embed.FS, staticFiles embed.FS) {
-	// Initialize homeTmpl
-	var err error
-	homeTmpl, err = template.ParseFS(templateFS, "templates/layout.html", "templates/index.html")
-	if err != nil {
-		log.Fatal(err)
-	}
+	templates = make(map[string]*template.Template)
 
-	// Initialize loginTmpl
-	loginTmpl, err = template.ParseFS(templateFS, "templates/layout.html", "templates/login.html")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Initialize uploadTmpl
-	uploadTmpl, err = template.ParseFS(templateFS, "templates/layout.html", "templates/upload.html")
-	if err != nil {
-		log.Fatal(err)
+	// Initialize all templates
+	for _, tmplName := range []string{"index", "login", "upload"} {
+		tmpl, err := template.ParseFS(templateFS, "templates/layout.html", "templates/"+tmplName+".html")
+		if err != nil {
+			log.Fatal(err)
+		}
+		templates[tmplName] = tmpl
 	}
 
 	// Serve static files
@@ -54,26 +48,31 @@ func InitRoutes(templateFS embed.FS, staticFiles embed.FS) {
 
 }
 
-func HomeHandler(w http.ResponseWriter, r *http.Request) {
-	data := map[string]interface{}{
-		"Title": "Home",
+func renderTemplate(w http.ResponseWriter, tmplName string, data TemplateData) {
+	tmpl, exists := templates[tmplName]
+	if !exists {
+		http.Error(w, "Template not found", http.StatusInternalServerError)
+		return
 	}
 
-	err := homeTmpl.ExecuteTemplate(w, "layout.html", data)
+	err := tmpl.ExecuteTemplate(w, "layout.html", data)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func NewHandler(w http.ResponseWriter, r *http.Request) {
-	data := map[string]interface{}{
-		"Title": "New",
+func HomeHandler(w http.ResponseWriter, r *http.Request) {
+	data := TemplateData{
+		Title: "Home",
 	}
+	renderTemplate(w, "index", data)
+}
 
-	err := uploadTmpl.ExecuteTemplate(w, "layout.html", data)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+func NewHandler(w http.ResponseWriter, r *http.Request) {
+	data := TemplateData{
+		Title: "New",
 	}
+	renderTemplate(w, "upload", data)
 }
 
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
@@ -107,14 +106,10 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		// Redirect or respond to the client as needed
 		http.Redirect(w, r, "/welcome", http.StatusSeeOther)
 	} else {
-		data := map[string]interface{}{
-			"Title": "Login",
+		data := TemplateData{
+			Title: "Login",
 		}
-
-		err := loginTmpl.ExecuteTemplate(w, "layout.html", data)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
+		renderTemplate(w, "login", data)
 	}
 }
 
