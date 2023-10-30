@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"embed"
 	"html/template"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"time"
@@ -12,26 +14,40 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-func HomeHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles("templates/index.html")
+var tmpl *template.Template
+
+func InitRoutes(templateFS embed.FS, staticFiles embed.FS) {
+	// Initialize tmpl variable
+	var err error
+	tmpl, err = template.ParseFS(templateFS, "templates/*.html")
 	if err != nil {
-		http.Error(w, "Could not load template", http.StatusInternalServerError)
-		return
+		// Handle error
 	}
-	tmpl.Execute(w, nil)
+
+	// Serve static files
+	staticFS, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		// Handle error
+	}
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+
+	// Routes
+	http.HandleFunc("/", HomeHandler)
+	http.HandleFunc("/new", NewHandler)
+	http.HandleFunc("/login", LoginHandler)
+	http.Handle("/upload", SessionAuthMiddleware(http.HandlerFunc(UploadHandler)))
+
+}
+
+func HomeHandler(w http.ResponseWriter, r *http.Request) {
+	tmpl.ExecuteTemplate(w, "index.html", nil)
 }
 
 func NewHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles("templates/upload.html")
-	if err != nil {
-		http.Error(w, "Could not load template", http.StatusInternalServerError)
-		return
-	}
-	tmpl.Execute(w, nil)
+	tmpl.ExecuteTemplate(w, "upload.html", nil)
 }
 
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
-
 	if r.Method == http.MethodPost {
 		username := r.FormValue("username")
 		password := r.FormValue("password")
@@ -62,9 +78,8 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		// Redirect or respond to the client as needed
 		http.Redirect(w, r, "/welcome", http.StatusSeeOther)
 	} else {
-		http.ServeFile(w, r, "templates/login.html")
+		tmpl.ExecuteTemplate(w, "login.html", nil)
 	}
-
 }
 
 func UploadHandler(w http.ResponseWriter, r *http.Request) {

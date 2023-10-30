@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"net/http"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -8,17 +9,18 @@ import (
 	"github.com/pdxiv/blunderbytes.com/v2/handlers"
 )
 
+//go:embed templates/*
+var templateFS embed.FS
+
+//go:embed static/*
+var staticFiles embed.FS
+
 func main() {
 	// Initialize database
 	db.InitDatabase()
 	defer db.DB.Close()
 
-	// Routes
-	http.HandleFunc("/", handlers.HomeHandler)
-	http.HandleFunc("/new", handlers.NewHandler)
-	http.HandleFunc("/login", handlers.LoginHandler)
-	http.Handle("/upload", handlers.SessionAuthMiddleware(http.HandlerFunc(handlers.UploadHandler)))
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./static"))))
+	handlers.InitRoutes(templateFS, staticFiles)
 
 	// Start server
 	http.ListenAndServe(":8080", nil)
