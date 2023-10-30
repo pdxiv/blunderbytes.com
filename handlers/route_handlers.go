@@ -30,13 +30,13 @@ func InitRoutes(templateFS embed.FS, staticFiles embed.FS) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	// Routes
 	http.HandleFunc("/", HomeHandler)
 	http.HandleFunc("/new", NewHandler)
 	http.HandleFunc("/login", LoginHandler)
 	http.Handle("/upload", SessionAuthMiddleware(http.HandlerFunc(UploadHandler)))
+	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 }
 
