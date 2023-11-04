@@ -55,6 +55,18 @@ func InitDatabase() {
 	if userCount == 0 {
 		createInitialUser()
 	}
+
+	// Create sessions table if it doesn't exist
+	_, err = DB.Exec(`CREATE TABLE IF NOT EXISTS sessions (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT NOT NULL,
+		token TEXT NOT NULL,
+		expires DATETIME NOT NULL
+	);`)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 }
 
 func createInitialUser() {

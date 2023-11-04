@@ -1,7 +1,10 @@
 package handlers
 
 import (
+	"crypto/rand"
+	"database/sql"
 	"embed"
+	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
@@ -11,18 +14,26 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/pdxiv/blunderbytes.com/v2/db"
 	"golang.org/x/crypto/bcrypt"
 )
 
+const SESSION_TOKEN_LENGTH = 16
+const SESSION_TOKEN_LIFETIME_MINUTES = 60
+const FILE_UPLOAD_MAX_SIZE_MB = 10
+const BITS_IN_MEGABYTE = 20
+
 type TemplateData struct {
-	Title string
+	Title      string
+	IsLoggedIn bool
+	Username   string
 }
 
 var templates map[string]*template.Template
+var db *sql.DB // This is the new global variable
 
-func InitRoutes(templateFS embed.FS, staticFiles embed.FS) {
+func InitRoutes(templateFS embed.FS, staticFiles embed.FS, passedDB *sql.DB) {
 	templates = make(map[string]*template.Template)
+	db = passedDB
 
 	// Iterate over the map to initialize each template.
 	templateArguments := map[string][]string{
@@ -48,6 +59,7 @@ func InitRoutes(templateFS embed.FS, staticFiles embed.FS) {
 	http.HandleFunc("/", HomeHandler)
 	http.HandleFunc("/new", NewHandler)
 	http.HandleFunc("/login", LoginHandler)
+	http.HandleFunc("/logout", LogoutHandler)
 	http.Handle("/upload", SessionAuthMiddleware(http.HandlerFunc(UploadHandler)))
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
@@ -66,9 +78,49 @@ func renderTemplate(w http.ResponseWriter, tmplName string, data TemplateData) {
 	}
 }
 
+func isValidSessionToken(token string) bool {
+	var sessionCount int
+	err := db.QueryRow("SELECT COUNT(*) FROM sessions WHERE token = ? AND expires > datetime('now')", token).Scan(&sessionCount)
+	if err != nil {
+		log.Println("Error checking session token:", err)
+		return false
+	}
+	return sessionCount > 0
+}
+
+func getUsernameBySessionToken(token string) (string, error) {
+	var username string
+	err := db.QueryRow("SELECT username FROM sessions WHERE token = ?", token).Scan(&username)
+	if err != nil {
+		log.Println("Error retrieving username by session token:", err)
+		return "", err
+	}
+	return username, nil
+}
+
 func HomeHandler(w http.ResponseWriter, r *http.Request) {
+	// Determine if the user is logged in by checking for a valid session cookie
+	c, err := r.Cookie("session_token")
+	var isLoggedIn bool
+	var username string
+
+	if err == nil {
+		if isValidSessionToken(c.Value) {
+			isLoggedIn = true
+			// Get username from database based on session token
+			username, err = getUsernameBySessionToken(c.Value)
+			if err != nil {
+				log.Println(err)
+			}
+		}
+	} else {
+		log.Println("Error retrieving session token:", err)
+	}
+
 	data := TemplateData{
-		Title: "Home",
+		Title:      "Home",
+		IsLoggedIn: isLoggedIn,
+		Username:   username,
 	}
 	renderTemplate(w, "index", data)
 }
@@ -85,9 +137,8 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		username := r.FormValue("username")
 		password := r.FormValue("password")
 
-		// Verify user credentials here
 		var hashedPassword []byte
-		err := db.DB.QueryRow("SELECT hashed_password FROM users WHERE username = ?", username).Scan(&hashedPassword)
+		err := db.QueryRow("SELECT hashed_password FROM users WHERE username = ?", username).Scan(&hashedPassword)
 		if err != nil {
 			http.Error(w, "Invalid login credentials", http.StatusUnauthorized)
 			return
@@ -98,18 +149,35 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Create a new session token (this could be a random string; here we use a basic example)
-		sessionToken := "your_random_session_token"
+		// Create a new session token (a securely generated random string)
+		b := make([]byte, SESSION_TOKEN_LENGTH)
+		_, err = rand.Read(b)
+		if err != nil {
+			log.Println("Error generating random session token:", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		sessionToken := fmt.Sprintf("%x", b) // Convert to a hex string
+
+		// Insert new session into the database with associated username
+		expiresAt := time.Now().Add(SESSION_TOKEN_LIFETIME_MINUTES * time.Minute)
+		_, err = db.Exec("INSERT INTO sessions (username, token, expires) VALUES (?, ?, ?)", username, sessionToken, expiresAt)
+		if err != nil {
+			log.Println("Error inserting session into database:", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
 
 		// Set session token as a cookie
 		http.SetCookie(w, &http.Cookie{
-			Name:    "session_token",
-			Value:   sessionToken,
-			Expires: time.Now().Add(60 * time.Minute),
+			Name:     "session_token",
+			Value:    sessionToken,
+			Expires:  expiresAt,
+			HttpOnly: true, // Helps mitigate the risk of client side script accessing the protected cookie
 		})
 
 		// Redirect or respond to the client as needed
-		http.Redirect(w, r, "/welcome", http.StatusSeeOther)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 	} else {
 		data := TemplateData{
 			Title: "Login",
@@ -121,7 +189,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 func UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Parse the form data to retrieve the file
-	err := r.ParseMultipartForm(10 << 20) // limit to 10MB
+	err := r.ParseMultipartForm(FILE_UPLOAD_MAX_SIZE_MB << BITS_IN_MEGABYTE)
 	if err != nil {
 		http.Error(w, "Unable to parse form", http.StatusBadRequest)
 		return
@@ -154,7 +222,7 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Insert blog entry into SQLite database
-	stmt, err := db.DB.Prepare(`INSERT INTO blogs (title, content, author, image_path) VALUES (?, ?, ?, ?)`)
+	stmt, err := db.Prepare(`INSERT INTO blogs (title, content, author, image_path) VALUES (?, ?, ?, ?)`)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
@@ -180,13 +248,30 @@ func SessionAuthMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Validate the session token (in a real-world app, you'd check this value on the server)
-		if c.Value != "your_random_session_token" {
+		// Validate the session token against the database
+		if !isValidSessionToken(c.Value) {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 
-		// If the session token is valid, continue to the actual upload handler
+		// If the session token is valid, continue to the actual handler
 		next.ServeHTTP(w, r)
 	})
+}
+
+// LogoutHandler invalidates the user's session and clears the session cookie.
+func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	// Retrieve the session token from the cookie
+
+	// Set the cookie with a past expiration date to remove it
+	http.SetCookie(w, &http.Cookie{
+		Name:    "session_token",
+		Value:   "",
+		Expires: time.Unix(0, 0), // Set the cookie to expire immediately
+		MaxAge:  -1,              // MaxAge < 0 means delete cookie now
+		Path:    "/",             // Ensure the cookie is deleted for the entire site
+	})
+
+	// Redirect to home page or login page after logout
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }

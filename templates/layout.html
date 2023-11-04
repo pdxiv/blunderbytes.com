@@ -20,7 +20,8 @@
 
         </header>
         <nav>
-            <a href="#">HOME</a>
+            <a href="/">HOME</a>
+            {{if .IsLoggedIn}}<a href="/logout">LOG OUT</a><a href="/new">NEW</a>{{else}}<a href="/login">LOGIN</a>{{end}}
             <a href="#">SHARE YOUR TECH FAIL</a>
         </nav>
         <main>
