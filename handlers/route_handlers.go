@@ -24,11 +24,16 @@ var templates map[string]*template.Template
 func InitRoutes(templateFS embed.FS, staticFiles embed.FS) {
 	templates = make(map[string]*template.Template)
 
-	// Initialize all templates
-	for _, tmplName := range []string{"index", "login", "upload"} {
-		tmpl, err := template.ParseFS(templateFS, "templates/layout.html", "templates/"+tmplName+".html")
+	// Iterate over the map to initialize each template.
+	templateArguments := map[string][]string{
+		"index":  {"templates/layout.html", "templates/index.html"},
+		"login":  {"templates/layout.html", "templates/login.html"},
+		"upload": {"templates/layout.html", "templates/upload.html"},
+	}
+	for tmplName, paths := range templateArguments {
+		tmpl, err := template.ParseFS(templateFS, paths...)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("error parsing templates for %s: %v", tmplName, err)
 		}
 		templates[tmplName] = tmpl
 	}
