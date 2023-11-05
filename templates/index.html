@@ -1,41 +1,14 @@
 {{define "content"}}
 <div class="articles-container">
+    {{range .BlogEntries}}    
     <article>
-        <h2>1 Long queue at the campsite resulted in an extra daily fee: "Not wise to do that"</h2>
-        <p>...</p>
+        <h2>{{.Title}}</h2>
+        {{if .ImagePath}}        
+        <img src="/uploads/{{.ImagePath | filepathBase}}" alt="Blog Image" loading="lazy">
+        {{end}}
+        <p>{{.Content}}</p>
     </article>
-    <article>
-        <h2>2 Long queue at the campsite resulted in an extra daily fee: "Not wise to do that"</h2>
-        <p>...</p>
-    </article>
-    <article>
-        <h2>3 Long queue at the campsite resulted in an extra daily fee: "Not wise to do that"</h2>
-        <p>...</p>
-    </article>
-    <article>
-        <h2>4 Long queue at the campsite resulted in an extra daily fee: "Not wise to do that"</h2>
-        <p>...</p>
-    </article>
-    <article>
-        <h2>5 Long queue at the campsite resulted in an extra daily fee: "Not wise to do that"</h2>
-        <p>...</p>
-    </article>
-    <article>
-        <h2>6 Long queue at the campsite resulted in an extra daily fee: "Not wise to do that"</h2>
-        <p>...</p>
-    </article>
-    <article>
-        <h2>7 Long queue at the campsite resulted in an extra daily fee: "Not wise to do that"</h2>
-        <p>...</p>
-    </article>
-    <article>
-        <h2>8 Long queue at the campsite resulted in an extra daily fee: "Not wise to do that"</h2>
-        <p>...</p>
-    </article>
-    <article>
-        <h2>9 Long queue at the campsite resulted in an extra daily fee: "Not wise to do that"</h2>
-        <p>...</p>
-    </article>
+    {{end}}
 </div>
 
 <aside>

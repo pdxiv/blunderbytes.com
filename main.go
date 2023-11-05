@@ -20,7 +20,7 @@ func main() {
 	db.InitDatabase()
 	defer db.DB.Close()
 
-	handlers.InitRoutes(templateFS, staticFiles, db.DB)
+	handlers.InitRoutes(templateFS, staticFiles, "uploads", db.DB)
 
 	// Start server
 	http.ListenAndServe(":8080", nil)

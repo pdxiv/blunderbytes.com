@@ -25,26 +25,39 @@ const FILE_UPLOAD_MAX_SIZE_MB = 10
 const BITS_IN_MEGABYTE = 20
 
 type TemplateData struct {
-	Title      string
-	IsLoggedIn bool
-	Username   string
+	Title       string
+	IsLoggedIn  bool
+	Username    string
+	BlogEntries []BlogEntry
+}
+
+type BlogEntry struct {
+	ID        int
+	Title     string
+	Content   string
+	ImagePath string
 }
 
 var templates map[string]*template.Template
 var db *sql.DB // This is the new global variable
 
-func InitRoutes(templateFS embed.FS, staticFiles embed.FS, passedDB *sql.DB) {
+func InitRoutes(templateFS embed.FS, staticFiles embed.FS, uploadsDir string, passedDB *sql.DB) {
 	templates = make(map[string]*template.Template)
 	db = passedDB
 
-	// Iterate over the map to initialize each template.
+	// Create a FuncMap to use Go's filepath.Base function in the template
+	funcMap := template.FuncMap{
+		"filepathBase": filepath.Base,
+	}
+
+	// Iterate over the templateArguments to initialize each template with the FuncMap.
 	templateArguments := map[string][]string{
 		"index":  {"templates/layout.html", "templates/navbar.html", "templates/index.html"},
 		"login":  {"templates/layout.html", "templates/navbar.html", "templates/login.html"},
 		"upload": {"templates/layout.html", "templates/navbar.html", "templates/upload.html"},
 	}
 	for tmplName, paths := range templateArguments {
-		tmpl, err := template.ParseFS(templateFS, paths...)
+		tmpl, err := template.New(tmplName).Funcs(funcMap).ParseFS(templateFS, paths...)
 		if err != nil {
 			log.Fatalf("error parsing templates for %s: %v", tmplName, err)
 		}
@@ -57,6 +70,9 @@ func InitRoutes(templateFS embed.FS, staticFiles embed.FS, passedDB *sql.DB) {
 		log.Fatal(err)
 	}
 
+	// Serve uploaded files from a regular directory (not embedded)
+	http.Handle("/uploads/", http.StripPrefix("/uploads/", http.FileServer(http.Dir(uploadsDir))))
+
 	// Routes
 	http.HandleFunc("/", HomeHandler)
 	http.HandleFunc("/new", NewHandler)
@@ -64,17 +80,56 @@ func InitRoutes(templateFS embed.FS, staticFiles embed.FS, passedDB *sql.DB) {
 	http.HandleFunc("/logout", LogoutHandler)
 	http.Handle("/upload", SessionAuthMiddleware(http.HandlerFunc(UploadHandler)))
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+}
 
+func getBlogEntriesFromDB() ([]BlogEntry, error) {
+	var entries []BlogEntry
+
+	// Get all fields from the blogs table
+	rows, err := db.Query("SELECT id, title, content, image_path FROM blogs")
+	if err != nil {
+		// Handle any errors, such as if the table does not exist
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var entry BlogEntry
+		if err := rows.Scan(&entry.ID, &entry.Title, &entry.Content, &entry.ImagePath); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return entries, nil
 }
 
 func HomeHandler(w http.ResponseWriter, request *http.Request) {
 	isLoggedIn, username := isValidSessionCookie(request)
 
-	data := TemplateData{
-		Title:      "Home",
-		IsLoggedIn: isLoggedIn,
-		Username:   username,
+	// Fetch the blog entries from your database
+	// This is a placeholder function. Replace it with the actual database call
+	blogEntries, err := getBlogEntriesFromDB()
+	if err != nil {
+		// Handle the error properly; for now, we'll just log it and return
+		log.Println("Error fetching blog entries:", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
 	}
+
+	// Now include the blog entries in the data passed to the template
+	data := TemplateData{
+		Title:       "Home",
+		IsLoggedIn:  isLoggedIn,
+		Username:    username,
+		BlogEntries: blogEntries, // pass the blog entries to the template
+	}
+
+	// Assuming you have a function renderTemplate that parses and executes the template
 	renderTemplate(w, "index", data)
 }
 
