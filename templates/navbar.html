@@ -1,0 +1,7 @@
+{{define "navbar"}}
+<nav>
+    <a href="/">HOME</a>
+    {{if .IsLoggedIn}}<a href="/logout">LOG OUT</a><a href="/new">NEW</a>{{else}}<a href="/login">LOG IN</a>{{end}}
+    <a href="#">SHARE YOUR TECH FAIL</a>
+</nav>
+{{end}}

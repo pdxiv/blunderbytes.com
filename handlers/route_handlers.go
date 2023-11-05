@@ -37,9 +37,9 @@ func InitRoutes(templateFS embed.FS, staticFiles embed.FS, passedDB *sql.DB) {
 
 	// Iterate over the map to initialize each template.
 	templateArguments := map[string][]string{
-		"index":  {"templates/layout.html", "templates/index.html"},
-		"login":  {"templates/layout.html", "templates/login.html"},
-		"upload": {"templates/layout.html", "templates/upload.html"},
+		"index":  {"templates/layout.html", "templates/navbar.html", "templates/index.html"},
+		"login":  {"templates/layout.html", "templates/navbar.html", "templates/login.html"},
+		"upload": {"templates/layout.html", "templates/navbar.html", "templates/upload.html"},
 	}
 	for tmplName, paths := range templateArguments {
 		tmpl, err := template.ParseFS(templateFS, paths...)
