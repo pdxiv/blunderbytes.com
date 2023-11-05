@@ -11,6 +11,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -79,8 +81,14 @@ func HomeHandler(w http.ResponseWriter, request *http.Request) {
 func NewHandler(w http.ResponseWriter, request *http.Request) {
 	isLoggedIn, username := isValidSessionCookie(request)
 
+	// Redirect user to login if not logged in.
+	if !isLoggedIn {
+		http.Redirect(w, request, "/login", http.StatusSeeOther)
+		return
+	}
+
 	data := TemplateData{
-		Title:      "New",
+		Title:      "New Blog Post",
 		IsLoggedIn: isLoggedIn,
 		Username:   username,
 	}
@@ -149,54 +157,88 @@ func LoginHandler(w http.ResponseWriter, request *http.Request) {
 
 func UploadHandler(w http.ResponseWriter, request *http.Request) {
 
-	// Parse the form data to retrieve the file
-	err := request.ParseMultipartForm(FILE_UPLOAD_MAX_SIZE_MB << BITS_IN_MEGABYTE)
-	if err != nil {
-		http.Error(w, "Unable to parse form", http.StatusBadRequest)
+	// Ensure only POST method is used
+	if request.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Get title and content from the form
+	// Validate logged-in user
+	isLoggedIn, username := isValidSessionCookie(request)
+	if !isLoggedIn {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Parse the form data with a size limit
+	err := request.ParseMultipartForm(FILE_UPLOAD_MAX_SIZE_MB << BITS_IN_MEGABYTE)
+	if err != nil {
+		http.Error(w, "The uploaded file is too large", http.StatusBadRequest)
+		return
+	}
+
+	// Get title and content from the form and validate
 	title := request.FormValue("title")
 	content := request.FormValue("content")
+	if title == "" || content == "" {
+		http.Error(w, "Title and content must be provided", http.StatusBadRequest)
+		return
+	}
 
 	// Get the file from the request
-	file, _, err := request.FormFile("file")
+	file, header, err := request.FormFile("file")
 	if err != nil {
-		http.Error(w, "Unable to get the file from form", http.StatusBadRequest)
+		http.Error(w, "File is required", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
+	// Validate the file type is an image
+	if !strings.HasPrefix(header.Header.Get("Content-Type"), "image/") {
+		http.Error(w, "Only image uploads are allowed", http.StatusBadRequest)
+		return
+	}
+
+	// Create a directory for uploads if it doesn't exist
+	uploadPath := "./uploads"
+	if _, err := os.Stat(uploadPath); os.IsNotExist(err) {
+		os.Mkdir(uploadPath, os.ModePerm)
+	}
+
+	// Generate a unique filename to prevent overwriting and directory traversal
+	// problems. In a production system, you might want to check the file extension too.
+	newFileName := fmt.Sprintf("%d-%s", time.Now().UnixNano(), header.Filename)
+	newFilePath := filepath.Join(uploadPath, newFileName)
+
 	// Create the file in the server's file system
-	dst, err := os.Create("/tmp/file.jpg")
+	dst, err := os.Create(newFilePath)
 	if err != nil {
-		http.Error(w, "Unable to create the file", http.StatusInternalServerError)
+		http.Error(w, "Unable to create the file on the server", http.StatusInternalServerError)
 		return
 	}
 	defer dst.Close()
 
 	// Copy the uploaded file to the created file on the filesystem
 	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(w, "Unable to copy the file", http.StatusInternalServerError)
+		http.Error(w, "Unable to save the uploaded file", http.StatusInternalServerError)
 		return
 	}
 
-	// Insert blog entry into SQLite database
+	// Insert blog entry into the database with the new image path
 	stmt, err := db.Prepare(`INSERT INTO blogs (title, content, author, image_path) VALUES (?, ?, ?, ?)`)
 	if err != nil {
 		http.Error(w, "Database error", http.StatusInternalServerError)
 		return
 	}
 
-	_, err = stmt.Exec(title, content, "your_author_name", "./uploads/some_file_name.jpg")
+	_, err = stmt.Exec(title, content, username, newFilePath)
 	if err != nil {
 		http.Error(w, "Database insert error", http.StatusInternalServerError)
 		return
 	}
 
-	// Optionally, send a success response
-	w.Write([]byte("File successfully uploaded"))
+	// Redirect or respond to the client as needed
+	http.Redirect(w, request, "/", http.StatusSeeOther)
 
 }
 
