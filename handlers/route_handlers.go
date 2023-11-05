@@ -65,57 +65,8 @@ func InitRoutes(templateFS embed.FS, staticFiles embed.FS, passedDB *sql.DB) {
 
 }
 
-func renderTemplate(w http.ResponseWriter, tmplName string, data TemplateData) {
-	tmpl, exists := templates[tmplName]
-	if !exists {
-		http.Error(w, "Template not found", http.StatusInternalServerError)
-		return
-	}
-
-	err := tmpl.ExecuteTemplate(w, "layout.html", data)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-}
-
-func isValidSessionToken(token string) bool {
-	var sessionCount int
-	err := db.QueryRow("SELECT COUNT(*) FROM sessions WHERE token = ? AND expires > datetime('now')", token).Scan(&sessionCount)
-	if err != nil {
-		log.Println("Error checking session token:", err)
-		return false
-	}
-	return sessionCount > 0
-}
-
-func getUsernameBySessionToken(token string) (string, error) {
-	var username string
-	err := db.QueryRow("SELECT username FROM sessions WHERE token = ?", token).Scan(&username)
-	if err != nil {
-		log.Println("Error retrieving username by session token:", err)
-		return "", err
-	}
-	return username, nil
-}
-
-func HomeHandler(w http.ResponseWriter, r *http.Request) {
-	// Determine if the user is logged in by checking for a valid session cookie
-	c, err := r.Cookie("session_token")
-	var isLoggedIn bool
-	var username string
-
-	if err == nil {
-		if isValidSessionToken(c.Value) {
-			isLoggedIn = true
-			// Get username from database based on session token
-			username, err = getUsernameBySessionToken(c.Value)
-			if err != nil {
-				log.Println(err)
-			}
-		}
-	} else {
-		log.Println("Error retrieving session token:", err)
-	}
+func HomeHandler(w http.ResponseWriter, request *http.Request) {
+	isLoggedIn, username := isValidSessionCookie(request)
 
 	data := TemplateData{
 		Title:      "Home",
@@ -125,17 +76,22 @@ func HomeHandler(w http.ResponseWriter, r *http.Request) {
 	renderTemplate(w, "index", data)
 }
 
-func NewHandler(w http.ResponseWriter, r *http.Request) {
+func NewHandler(w http.ResponseWriter, request *http.Request) {
+	isLoggedIn, username := isValidSessionCookie(request)
+
 	data := TemplateData{
-		Title: "New",
+		Title:      "New",
+		IsLoggedIn: isLoggedIn,
+		Username:   username,
 	}
 	renderTemplate(w, "upload", data)
 }
 
-func LoginHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		username := r.FormValue("username")
-		password := r.FormValue("password")
+func LoginHandler(w http.ResponseWriter, request *http.Request) {
+
+	if request.Method == http.MethodPost {
+		username := request.FormValue("username")
+		password := request.FormValue("password")
 
 		var hashedPassword []byte
 		err := db.QueryRow("SELECT hashed_password FROM users WHERE username = ?", username).Scan(&hashedPassword)
@@ -177,30 +133,35 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		})
 
 		// Redirect or respond to the client as needed
-		http.Redirect(w, r, "/", http.StatusSeeOther)
+		http.Redirect(w, request, "/", http.StatusSeeOther)
 	} else {
+		isLoggedIn, username := isValidSessionCookie(request)
+
 		data := TemplateData{
-			Title: "Login",
+			Title:      "Login",
+			IsLoggedIn: isLoggedIn,
+			Username:   username,
 		}
+
 		renderTemplate(w, "login", data)
 	}
 }
 
-func UploadHandler(w http.ResponseWriter, r *http.Request) {
+func UploadHandler(w http.ResponseWriter, request *http.Request) {
 
 	// Parse the form data to retrieve the file
-	err := r.ParseMultipartForm(FILE_UPLOAD_MAX_SIZE_MB << BITS_IN_MEGABYTE)
+	err := request.ParseMultipartForm(FILE_UPLOAD_MAX_SIZE_MB << BITS_IN_MEGABYTE)
 	if err != nil {
 		http.Error(w, "Unable to parse form", http.StatusBadRequest)
 		return
 	}
 
 	// Get title and content from the form
-	title := r.FormValue("title")
-	content := r.FormValue("content")
+	title := request.FormValue("title")
+	content := request.FormValue("content")
 
 	// Get the file from the request
-	file, _, err := r.FormFile("file")
+	file, _, err := request.FormFile("file")
 	if err != nil {
 		http.Error(w, "Unable to get the file from form", http.StatusBadRequest)
 		return
@@ -239,39 +200,35 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func SessionAuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		c, err := r.Cookie("session_token")
-		if err != nil {
-			// No cookie, redirect to login or send unauthorized response
-			http.Redirect(w, r, "/login", http.StatusSeeOther)
-			return
-		}
-
-		// Validate the session token against the database
-		if !isValidSessionToken(c.Value) {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		// If the session token is valid, continue to the actual handler
-		next.ServeHTTP(w, r)
-	})
-}
-
-// LogoutHandler invalidates the user's session and clears the session cookie.
-func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+// Invalidate the user's session and clear the session cookie.
+func LogoutHandler(w http.ResponseWriter, request *http.Request) {
 	// Retrieve the session token from the cookie
+	sessionCookie, err := request.Cookie("session_token")
+	if err != nil {
+		// If the session cookie is not found, redirect to the login page or home page
+		http.Redirect(w, request, "/", http.StatusSeeOther)
+		return
+	}
+
+	// Get the session token value
+	sessionToken := sessionCookie.Value
+
+	// Delete the session from the database
+	_, err = db.Exec("DELETE FROM sessions WHERE token = ?", sessionToken)
+	if err != nil {
+		log.Printf("Error deleting session from database: %v", err)
+	}
 
 	// Set the cookie with a past expiration date to remove it
 	http.SetCookie(w, &http.Cookie{
-		Name:    "session_token",
-		Value:   "",
-		Expires: time.Unix(0, 0), // Set the cookie to expire immediately
-		MaxAge:  -1,              // MaxAge < 0 means delete cookie now
-		Path:    "/",             // Ensure the cookie is deleted for the entire site
+		Name:     "session_token",
+		Value:    "",
+		Expires:  time.Unix(0, 0), // Set the cookie to expire immediately
+		MaxAge:   -1,              // MaxAge < 0 means delete cookie now
+		Path:     "/",             // Ensure the cookie is deleted for the entire site
+		HttpOnly: true,
 	})
 
 	// Redirect to home page or login page after logout
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
+	http.Redirect(w, request, "/", http.StatusSeeOther)
 }

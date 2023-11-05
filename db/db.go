@@ -53,7 +53,7 @@ func InitDatabase() {
 
 	// If no users exist, insert an initial user
 	if userCount == 0 {
-		createInitialUser()
+		createUser("foo", "bar")
 	}
 
 	// Create sessions table if it doesn't exist
@@ -69,20 +69,31 @@ func InitDatabase() {
 
 }
 
-func createInitialUser() {
-	// Hash the initial password
-	initialPassword := "initial_password_here"
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(initialPassword), bcrypt.DefaultCost)
+func createUser(username string, password string) error {
+	// Start a database transaction
+	tx, err := DB.Begin()
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("database begin transaction error: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Hash the initial password
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("password hashing error: %w", err)
 	}
 
 	// Insert the initial user
-	initialUsername := "initial_user"
-	_, err = DB.Exec("INSERT INTO users (username, hashed_password) VALUES (?, ?)", initialUsername, hashedPassword)
+	_, err = tx.Exec("INSERT INTO users (username, hashed_password) VALUES (?, ?)", username, hashedPassword)
 	if err != nil {
-		log.Fatal(err)
+		return fmt.Errorf("user creation error: %w", err)
 	}
 
-	fmt.Println("Initial user created!")
+	// Commit the transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("database transaction commit error: %w", err)
+	}
+	log.Println("Successfully created user:", username)
+
+	return nil
 }
