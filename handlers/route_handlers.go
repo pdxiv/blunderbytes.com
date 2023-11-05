@@ -86,7 +86,7 @@ func getBlogEntriesFromDB() ([]BlogEntry, error) {
 	var entries []BlogEntry
 
 	// Get all fields from the blogs table
-	rows, err := db.Query("SELECT id, title, content, image_path FROM blogs")
+	rows, err := db.Query("SELECT id, title, content, image_path FROM blogs ORDER BY id DESC")
 	if err != nil {
 		// Handle any errors, such as if the table does not exist
 		return nil, err
