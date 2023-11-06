@@ -153,8 +153,8 @@ func NewHandler(w http.ResponseWriter, request *http.Request) {
 func LoginHandler(w http.ResponseWriter, request *http.Request) {
 
 	if request.Method == http.MethodPost {
-		username := request.FormValue("username")
-		password := request.FormValue("password")
+		username := sanitizeInput(request.FormValue("username"))
+		password := sanitizeInput(request.FormValue("password"))
 
 		var hashedPassword []byte
 		err := db.QueryRow("SELECT hashed_password FROM users WHERE username = ?", username).Scan(&hashedPassword)
@@ -233,8 +233,8 @@ func UploadHandler(w http.ResponseWriter, request *http.Request) {
 	}
 
 	// Get title and content from the form and validate
-	title := request.FormValue("title")
-	content := request.FormValue("content")
+	title := sanitizeInput(request.FormValue("title"))
+	content := sanitizeInput(request.FormValue("content"))
 	if title == "" || content == "" {
 		http.Error(w, "Title and content must be provided", http.StatusBadRequest)
 		return
