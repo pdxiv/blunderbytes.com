@@ -27,10 +27,14 @@ const FILE_UPLOAD_MAX_SIZE_MB = 10
 const BITS_IN_MEGABYTE = 20
 
 type TemplateData struct {
-	Title       string
-	IsLoggedIn  bool
-	Username    string
-	BlogEntries []BlogEntry
+	Title                   string
+	IsLoggedIn              bool
+	Username                string
+	BlogEntries             []BlogEntry
+	LogoBase64              string
+	FaviconBase64           string
+	PlaceholderImage1Base64 string
+	PlaceholderImage2Base64 string
 }
 
 type BlogEntry struct {
@@ -144,12 +148,43 @@ func HomeHandler(w http.ResponseWriter, request *http.Request) {
 		}
 	}
 
+	logoBase64, err := imageToBase64("static/images/logo.png")
+	if err != nil {
+		// Handle error
+		log.Println("Error converting logo to base64:", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	faviconBase64, err := imageToBase64("static/images/favicon.ico")
+	if err != nil {
+		// Handle error
+		log.Println("Error converting favicon to base64:", err)
+		return
+	}
+
+	placeholderImage1Base64, err := imageToBase64("static/images/placeholder_image_1.png")
+	if err != nil {
+		// Handle the error
+		// ...
+	}
+
+	placeholderImage2Base64, err := imageToBase64("static/images/placeholder_image_2.png")
+	if err != nil {
+		// Handle the error
+		// ...
+	}
+
 	// Now include the blog entries in the data passed to the template
 	data := TemplateData{
-		Title:       "Home",
-		IsLoggedIn:  isLoggedIn,
-		Username:    username,
-		BlogEntries: blogEntries, // pass the blog entries to the template
+		Title:                   "Home",
+		IsLoggedIn:              isLoggedIn,
+		Username:                username,
+		BlogEntries:             blogEntries,
+		LogoBase64:              logoBase64,
+		FaviconBase64:           faviconBase64,
+		PlaceholderImage1Base64: placeholderImage1Base64,
+		PlaceholderImage2Base64: placeholderImage2Base64,
 	}
 
 	// Assuming you have a function renderTemplate that parses and executes the template

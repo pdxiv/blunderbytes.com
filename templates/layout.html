@@ -2,11 +2,153 @@
 <html lang="en">
 
 <head>
+    <style>
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #e5e5e5;
+    display: block;
+    min-height: 100vh;
+}
+
+.container {
+    background-color: #ffffff;
+    box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
+    max-width: 1040px;
+    width: 100%;
+    margin: 50px auto;
+}
+
+.logo-link img {
+    max-width: 100%;
+    height: 90px;
+    image-rendering: pixelated;
+}
+
+header {
+    text-align: center;
+    padding: 10px;
+    border-bottom: 1px solid #ddd;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 24px;
+}
+
+header p {
+    margin: 5px 0 0 0;
+    color: #666;
+}
+
+nav {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 20px;
+    border-bottom: 1px solid #ddd;
+}
+
+nav a {
+    color: #333;
+    text-decoration: none;
+    padding: 5px 10px;
+}
+
+nav a:hover {
+    background-color: #ddd;
+}
+
+article h2 {
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+}
+
+.articles-container {
+    /* Allow it to take all available horizontal space */
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    /* Provides spacing between articles */
+    gap: 20px;
+}
+
+article {
+    width: 100%;
+    border-bottom: 1px solid #ddd;
+}
+
+.search-container {
+    display: flex;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+#searchField {
+    padding: 5px 10px;
+    margin-left: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    outline: none;
+
+}
+
+#searchBtn {
+    padding: 5px 10px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    background-color: #333;
+    color: #fff;
+}
+
+#searchBtn:hover {
+    background-color: #555;
+}
+
+main {
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+}
+
+aside {
+    width: 30%;
+    padding-left: 20px;
+}
+
+aside img {
+    width: 100%;
+    margin-bottom: 20px;
+    transition: transform 0.2s;
+}
+
+aside img:hover {
+    transform: scale(1.05);
+}
+
+/* Media Query for screens less than 700 pixels wide */
+@media only screen and (max-width: 700px) {
+    body {
+        background-color: #ffffff;
+        display: block;
+        height: auto;
+    }
+
+    .container {
+        width: 100%;
+        box-shadow: none;
+    }
+
+    aside {
+        display: none;
+    }
+}
+    </style>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{.Title}}</title>
-    <link rel="preload" href="static/css/styles.css" as="style">
-    <link rel="stylesheet" href="static/css/styles.css">
+    <title>{{.Title}}</title>    
+    <link rel="icon" href="data:image/x-icon;base64,{{.FaviconBase64}}">
 </head>
 
 <body>
@@ -14,7 +156,7 @@
     <div class="container">
         <header>
             <div class="logo-link">
-                <img src="static/images/logo.png"
+                <img src="data:image/png;base64,{{.LogoBase64}}"
                     alt="blunderbytes.com - 🔥💻 Your Daily Dose of Digital Disasters 🔥💻" loading="lazy">
             </div>
 
