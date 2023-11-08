@@ -3,8 +3,8 @@
     {{range .BlogEntries}}    
     <article>
         <h2>{{.Title}}</h2>
-        {{if .ImagePath}}        
-        <img src="/uploads/{{.ImagePath | filepathBase}}" alt="Blog Image" loading="lazy">
+        {{if .Base64Image}}
+        <img src="data:image/png;base64,{{.Base64Image}}" alt="Blog Image" loading="lazy">
         {{end}}
         <p>{{.Content}}</p>
     </article>

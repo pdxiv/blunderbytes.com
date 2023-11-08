@@ -4,10 +4,12 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"embed"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"io"
 	"io/fs"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -32,14 +34,24 @@ type TemplateData struct {
 }
 
 type BlogEntry struct {
-	ID        int
-	Title     string
-	Content   string
-	ImagePath string
+	ID          int
+	Title       string
+	Content     string
+	ImagePath   string
+	Base64Image string
 }
 
 var templates map[string]*template.Template
 var db *sql.DB // This is the new global variable
+
+func imageToBase64(imagePath string) (string, error) {
+	imageBytes, err := ioutil.ReadFile(imagePath)
+	if err != nil {
+		return "", err
+	}
+	base64String := base64.StdEncoding.EncodeToString(imageBytes)
+	return base64String, nil
+}
 
 func InitRoutes(templateFS embed.FS, staticFiles embed.FS, uploadsDir string, passedDB *sql.DB) {
 	templates = make(map[string]*template.Template)
@@ -119,6 +131,17 @@ func HomeHandler(w http.ResponseWriter, request *http.Request) {
 		log.Println("Error fetching blog entries:", err)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
+	}
+
+	for i, entry := range blogEntries {
+		if entry.ImagePath != "" {
+			base64Image, err := imageToBase64(entry.ImagePath)
+			if err != nil {
+				// Handle error, maybe continue with the next entry
+				continue
+			}
+			blogEntries[i].Base64Image = base64Image
+		}
 	}
 
 	// Now include the blog entries in the data passed to the template
