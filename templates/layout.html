@@ -5,8 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{.Title}}</title>
-    <link rel="preload" href="static/css/styles.css" as="style">
-    <link rel="stylesheet" href="static/css/styles.css">
+    <link rel="icon" href="{{.Assets.FaviconDataURI}}">
+    <style>{{.Assets.CSS}}</style>
 </head>
 
 <body>
@@ -14,8 +14,8 @@
     <div class="container">
         <header>
             <div class="logo-link">
-                <img src="static/images/logo.png"
-                    alt="blunderbytes.com - 🔥💻 Your Daily Dose of Digital Disasters 🔥💻" loading="lazy">
+                <a href="/"><img src="{{.Assets.LogoDataURI}}"
+                    alt="blunderbytes.com - Your Daily Dose of Digital Disasters"></a>
             </div>
 
         </header>

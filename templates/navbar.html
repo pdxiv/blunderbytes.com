@@ -1,7 +1,15 @@
 {{define "navbar"}}
 <nav>
     <a href="/">HOME</a>
-    {{if .IsLoggedIn}}<a href="/logout">LOG OUT</a><a href="/new">NEW</a>{{else}}<a href="/login">LOG IN</a>{{end}}
+    {{if .IsLoggedIn}}
+    <a href="/new">NEW</a>
+    <form action="/logout" method="post" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+        <button type="submit" class="link-button">LOG OUT</button>
+    </form>
+    {{else}}
+    <a href="/login">LOG IN</a>
+    {{end}}
     <a href="#">SHARE YOUR TECH FAIL</a>
 </nav>
 {{end}}

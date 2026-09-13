@@ -1,13 +1,26 @@
 {{define "content"}}
 <div class="articles-container">
-    {{range .BlogEntries}}    
+    {{range .BlogEntries}}
     <article>
         <h2>{{.Title}}</h2>
-        {{if .ImagePath}}        
-        <img src="/uploads/{{.ImagePath | filepathBase}}" alt="Blog Image" loading="lazy">
+        <p class="byline">by {{.Author}} on {{.CreatedAt.Format "2006-01-02"}}</p>
+        {{if .ImageURI}}
+        <img src="{{.ImageURI}}" alt="Image for {{.Title}}" loading="lazy">
         {{end}}
-        <p>{{.Content}}</p>
+        <div class="post-body">{{.Content}}</div>
     </article>
+    {{else}}
+    <p>No posts yet.</p>
+    {{end}}
+
+    {{with .Pagination}}
+    {{if or .HasPrev .HasNext}}
+    <nav class="pagination">
+        {{if .HasPrev}}<a href="/?page={{.PrevPage}}">&larr; Newer</a>{{end}}
+        <span>Page {{.Page}}</span>
+        {{if .HasNext}}<a href="/?page={{.NextPage}}">Older &rarr;</a>{{end}}
+    </nav>
+    {{end}}
     {{end}}
 </div>
 
@@ -16,8 +29,7 @@
         <input type="text" placeholder="Search..." id="searchField">
         <button id="searchBtn">Search</button>
     </div>
-    <img src="static/images/placeholder_image_1.png" alt="Description 1" loading="lazy">
-    <img src="static/images/placeholder_image_2.png" alt="Description 2" loading="lazy">
-    <!-- ... add more images as needed ... -->
+    <img src="{{.Assets.Placeholder1DataURI}}" alt="Description 1" loading="lazy">
+    <img src="{{.Assets.Placeholder2DataURI}}" alt="Description 2" loading="lazy">
 </aside>
 {{end}}
