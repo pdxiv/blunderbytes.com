@@ -3,6 +3,7 @@ package handlers
 import (
 	"bufio"
 	"html"
+	"html/template"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,40 +14,48 @@ type markdownParserState struct {
 	inUnorderedList      bool
 	inCodeBlock          bool
 	inTable              bool
-	inParagraph          bool
-	tableHeader          string
-	tableBody            string
-	tableColumnCount     int
 	tableHeaderProcessed bool
 }
 
-// Global precompiled regular expressions remain unchanged
 var (
 	headerSeparatorRegex = regexp.MustCompile(`^\|\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|$`)
 	olRegex              = regexp.MustCompile(`^\d+\.\s`)
 	codeBlockStartRegex  = regexp.MustCompile("^```")
+	atxHeaderRegex       = regexp.MustCompile(`^(#{1,6})\s+(.*)$`)
+	imageRegex           = regexp.MustCompile(`!\[(.*?)\]\((.*?)\)`)
+	linkRegex            = regexp.MustCompile(`\[(.*?)\]\((.*?)\)`)
+	// safeURLPrefixes are the only absolute schemes permitted in links and
+	// images. Anything else (javascript:, data:, vbscript:) is neutralised.
+	safeURLPrefixes = []string{"http://", "https://", "mailto:"}
 )
+
+// renderMarkdown converts post text to HTML that is safe to embed directly.
+// Every input line is HTML-escaped before any markup is generated, so author
+// text can never introduce tags of its own.
+func renderMarkdown(markdown string) template.HTML {
+	return template.HTML(parseMarkdown(markdown))
+}
 
 // parseMarkdown translates markdown to HTML.
 func parseMarkdown(markdown string) string {
-	state := &markdownParserState{} // Initialize empty parser state
-	reader := strings.NewReader(markdown)
-	scanner := bufio.NewScanner(reader)
-	var htmlBuffer strings.Builder
+	state := &markdownParserState{}
+	scanner := bufio.NewScanner(strings.NewReader(markdown))
+	// Post bodies can legitimately contain long lines; the default 64KiB
+	// scanner buffer is raised to the content limit to avoid silent truncation.
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*MaxContentRunes)
 
+	var htmlBuffer strings.Builder
 	for scanner.Scan() {
-		line := scanner.Text()
-		parseLine(line, state, &htmlBuffer)
+		// Escape first: everything emitted below is generated markup plus
+		// already-escaped author text.
+		parseLine(html.EscapeString(scanner.Text()), state, &htmlBuffer)
 	}
 
-	// Close any open HTML tags if needed
 	finalizeHTML(state, &htmlBuffer)
-
-	htmlStr := htmlBuffer.String()
-	return replaceInlineFormatting(htmlStr)
+	return htmlBuffer.String()
 }
 
-// finalizeHTML handles any closing tags that are necessary at the end of the document.
+// finalizeHTML closes any tags left open at the end of a block or document.
 func finalizeHTML(state *markdownParserState, htmlBuffer *strings.Builder) {
 	if state.inOrderedList {
 		htmlBuffer.WriteString("</ol>\n")
@@ -60,61 +69,104 @@ func finalizeHTML(state *markdownParserState, htmlBuffer *strings.Builder) {
 		htmlBuffer.WriteString("</code></pre>\n")
 		state.inCodeBlock = false
 	}
-	if state.inTable {
-		htmlBuffer.WriteString("</tbody>\n")
-		htmlBuffer.WriteString("</table>\n")
-		state.inTable = false
-	}
+	closeTable(state, htmlBuffer)
 }
 
-// replaceInlineFormatting handles the inline markdown formatting.
-func replaceInlineFormatting(htmlStr string) string {
-	replacements := []*struct {
-		re   *regexp.Regexp
-		repl string
-	}{
-		{regexp.MustCompile(`\*\*\*(.*?)\*\*\*`), "<strong><em>$1</em></strong>"},
-		{regexp.MustCompile(`\_\_\_(.*?)\_\_\_`), "<strong><em>$1</em></strong>"},
-		{regexp.MustCompile(`\*\*(.*?)\*\*`), "<strong>$1</strong>"},
-		{regexp.MustCompile(`\_\_(.*?)\_\_`), "<strong>$1</strong>"},
-		{regexp.MustCompile(`\*(.*?)\*`), "<em>$1</em>"},
-		{regexp.MustCompile(`\_(.*?)\_`), "<em>$1</em>"},
-		{regexp.MustCompile(`\~\~(.*?)\~\~`), "<del>$1</del>"},
-		{regexp.MustCompile("`([^`]+)`"), "<code>$1</code>"},
-		{regexp.MustCompile(`!\[(.*?)\]\((.*?)\)`), "<img alt=\"$1\" src=\"$2\">"},
-		{regexp.MustCompile(`\[(.*?)\]\((.*?)\)`), "<a href=\"$2\">$1</a>"},
+// closeTable ends an open table and resets the per-table header state, so that
+// a second table in the same document gets its own <thead>.
+func closeTable(state *markdownParserState, htmlBuffer *strings.Builder) {
+	if !state.inTable {
+		return
 	}
-
-	for _, replacement := range replacements {
-		htmlStr = replacement.re.ReplaceAllString(htmlStr, replacement.repl)
-	}
-
-	return htmlStr
+	htmlBuffer.WriteString("</tbody>\n</table>\n")
+	state.inTable = false
+	state.tableHeaderProcessed = false
 }
 
-// The parseLine function determines which parsing function to call based on the current line
+// inlineReplacements are applied in order to already-escaped text. They are
+// compiled once rather than per call.
+var inlineReplacements = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	{regexp.MustCompile(`\*\*\*(.+?)\*\*\*`), "<strong><em>$1</em></strong>"},
+	{regexp.MustCompile(`___(.+?)___`), "<strong><em>$1</em></strong>"},
+	{regexp.MustCompile(`\*\*(.+?)\*\*`), "<strong>$1</strong>"},
+	{regexp.MustCompile(`__(.+?)__`), "<strong>$1</strong>"},
+	{regexp.MustCompile(`\*(.+?)\*`), "<em>$1</em>"},
+	{regexp.MustCompile(`_(.+?)_`), "<em>$1</em>"},
+	{regexp.MustCompile(`~~(.+?)~~`), "<del>$1</del>"},
+	{regexp.MustCompile("`([^`]+)`"), "<code>$1</code>"},
+}
+
+// inline applies inline markdown formatting to a single already-escaped
+// fragment. It is applied per fragment rather than to the whole document so
+// that the contents of code blocks are left alone.
+func inline(text string) string {
+	// Images before links: the link pattern also matches the image syntax.
+	text = imageRegex.ReplaceAllStringFunc(text, func(match string) string {
+		groups := imageRegex.FindStringSubmatch(match)
+		return `<img alt="` + groups[1] + `" src="` + safeURL(groups[2]) + `" loading="lazy">`
+	})
+	text = linkRegex.ReplaceAllStringFunc(text, func(match string) string {
+		groups := linkRegex.FindStringSubmatch(match)
+		return `<a href="` + safeURL(groups[2]) + `" rel="noopener noreferrer">` + groups[1] + `</a>`
+	})
+
+	for _, replacement := range inlineReplacements {
+		text = replacement.re.ReplaceAllString(text, replacement.repl)
+	}
+	return text
+}
+
+// safeURL passes through relative URLs, fragments, and a small allowlist of
+// schemes. Anything else becomes "#" so that a post cannot smuggle in
+// javascript: or data: URLs.
+func safeURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "#"
+	}
+
+	// Relative paths and fragments carry no scheme and are always safe.
+	if strings.HasPrefix(trimmed, "/") || strings.HasPrefix(trimmed, "#") ||
+		strings.HasPrefix(trimmed, "./") || strings.HasPrefix(trimmed, "../") {
+		return trimmed
+	}
+
+	lowered := strings.ToLower(trimmed)
+	for _, prefix := range safeURLPrefixes {
+		if strings.HasPrefix(lowered, prefix) {
+			return trimmed
+		}
+	}
+
+	// A colon before the first slash means an unrecognised scheme.
+	if colon := strings.IndexByte(lowered, ':'); colon >= 0 {
+		if slash := strings.IndexByte(lowered, '/'); slash < 0 || colon < slash {
+			return "#"
+		}
+	}
+	return trimmed
+}
+
+// parseLine dispatches a single line to the right block handler.
 func parseLine(line string, state *markdownParserState, htmlBuffer *strings.Builder) {
 	if state.inCodeBlock {
 		parseCodeBlock(line, state, htmlBuffer)
 		return
 	}
 
-	if state.inTable && !strings.HasPrefix(line, "|") {
-		finalizeHTML(state, htmlBuffer)
+	if state.inTable && !strings.HasPrefix(strings.TrimSpace(line), "|") {
+		closeTable(state, htmlBuffer)
 	}
 
-	if state.inTable {
+	if state.inTable || strings.HasPrefix(strings.TrimSpace(line), "|") {
 		parseTable(line, state, htmlBuffer)
 		return
 	}
 
-	// New table check before checking for paragraphs
-	if strings.HasPrefix(line, "|") && !headerSeparatorRegex.MatchString(line) {
-		parseTable(line, state, htmlBuffer)
-		return
-	}
-
-	// Check for empty line which should end any current lists
+	// A blank line ends any open list.
 	if strings.TrimSpace(line) == "" {
 		if state.inOrderedList {
 			htmlBuffer.WriteString("</ol>\n")
@@ -127,12 +179,12 @@ func parseLine(line string, state *markdownParserState, htmlBuffer *strings.Buil
 		return
 	}
 
-	// Detect if we should close the current list before starting a different type
+	// Close the current list before starting a different kind of block.
 	if state.inOrderedList && !olRegex.MatchString(line) {
 		htmlBuffer.WriteString("</ol>\n")
 		state.inOrderedList = false
 	}
-	if state.inUnorderedList && !strings.HasPrefix(line, "* ") {
+	if state.inUnorderedList && !isUnorderedListItem(line) {
 		htmlBuffer.WriteString("</ul>\n")
 		state.inUnorderedList = false
 	}
@@ -142,18 +194,25 @@ func parseLine(line string, state *markdownParserState, htmlBuffer *strings.Buil
 		parseCodeBlock(line, state, htmlBuffer)
 	case olRegex.MatchString(line):
 		parseOrderedList(line, state, htmlBuffer)
-	case strings.HasPrefix(line, "* "):
+	case isUnorderedListItem(line):
 		parseUnorderedList(line, state, htmlBuffer)
-	case strings.HasPrefix(line, "#"):
-		parseHeader(line, state, htmlBuffer)
+	case atxHeaderRegex.MatchString(line):
+		parseHeader(line, htmlBuffer)
 	default:
-		parseParagraph(line, state, htmlBuffer)
+		parseParagraph(line, htmlBuffer)
 	}
 }
 
-func parseHeader(line string, state *markdownParserState, htmlBuffer *strings.Builder) {
-	level := strings.Count(line, "#")
-	htmlBuffer.WriteString("<h" + strconv.Itoa(level) + ">" + strings.TrimSpace(line[level:]) + "</h" + strconv.Itoa(level) + ">\n")
+func isUnorderedListItem(line string) bool {
+	return strings.HasPrefix(line, "* ") || strings.HasPrefix(line, "- ")
+}
+
+// parseHeader emits an <h1>..<h6>. The level comes from the run of leading '#'
+// characters only, so a line such as "# C# rocks" is still an <h1>.
+func parseHeader(line string, htmlBuffer *strings.Builder) {
+	groups := atxHeaderRegex.FindStringSubmatch(line)
+	level := strconv.Itoa(len(groups[1]))
+	htmlBuffer.WriteString("<h" + level + ">" + inline(strings.TrimSpace(groups[2])) + "</h" + level + ">\n")
 }
 
 func parseOrderedList(line string, state *markdownParserState, htmlBuffer *strings.Builder) {
@@ -161,8 +220,7 @@ func parseOrderedList(line string, state *markdownParserState, htmlBuffer *strin
 		htmlBuffer.WriteString("<ol>\n")
 		state.inOrderedList = true
 	}
-	line = olRegex.ReplaceAllString(line, "")
-	htmlBuffer.WriteString("<li>" + line + "</li>\n")
+	htmlBuffer.WriteString("<li>" + inline(olRegex.ReplaceAllString(line, "")) + "</li>\n")
 }
 
 func parseUnorderedList(line string, state *markdownParserState, htmlBuffer *strings.Builder) {
@@ -170,103 +228,82 @@ func parseUnorderedList(line string, state *markdownParserState, htmlBuffer *str
 		htmlBuffer.WriteString("<ul>\n")
 		state.inUnorderedList = true
 	}
-	line = strings.TrimPrefix(line, "* ")
-	htmlBuffer.WriteString("<li>" + line + "</li>\n")
+	item := strings.TrimPrefix(strings.TrimPrefix(line, "* "), "- ")
+	htmlBuffer.WriteString("<li>" + inline(item) + "</li>\n")
 }
 
+// parseCodeBlock handles fenced code. Content is emitted verbatim (already
+// escaped by the caller) with no inline formatting applied.
 func parseCodeBlock(line string, state *markdownParserState, htmlBuffer *strings.Builder) {
-	if codeBlockStartRegex.MatchString(line) || state.inCodeBlock {
-		if state.inCodeBlock && (line == "```" || codeBlockStartRegex.MatchString(line)) {
-			htmlBuffer.WriteString("</code></pre>\n")
-			state.inCodeBlock = false
-		} else if !state.inCodeBlock {
+	if !state.inCodeBlock {
+		if codeBlockStartRegex.MatchString(line) {
 			htmlBuffer.WriteString("<pre><code>")
 			state.inCodeBlock = true
-		} else {
-			htmlBuffer.WriteString(html.EscapeString(line) + "\n")
 		}
-	}
-}
-func parseTable(line string, state *markdownParserState, htmlBuffer *strings.Builder) {
-	trimmedLine := strings.TrimSpace(line)
-
-	// Avoid parsing non-table lines as table rows
-	if !strings.HasPrefix(trimmedLine, "|") && state.inTable {
-		htmlBuffer.WriteString("</tbody>\n</table>\n")
-		state.inTable = false
 		return
 	}
 
-	// Check if the line is a table header or body
-	if strings.HasPrefix(trimmedLine, "|") {
-		// Check if we are starting a new table
-		if !state.inTable {
-			htmlBuffer.WriteString("<table>\n")
-			state.inTable = true
-		}
-
-		// Check for the end of the table
-		if len(trimmedLine) == 1 {
-			// A lone pipe character '|' on a new line signifies the end of the table
-			htmlBuffer.WriteString("</tbody>\n</table>\n")
-			state.inTable = false
-			return
-		}
-
-		// Process the header or a row
-		cells := strings.Split(trimmedLine, "|")
-		// Remove the first and last element if they are empty
-		if len(cells) > 1 && cells[0] == "" {
-			cells = cells[1:]
-		}
-		if len(cells) > 1 && cells[len(cells)-1] == "" {
-			cells = cells[:len(cells)-1]
-		}
-
-		// If this is a header separator, we should skip adding anything to htmlBuffer
-		if headerSeparatorRegex.MatchString(trimmedLine) {
-			return
-		}
-
-		// Start the header or the body
-		if !state.tableHeaderProcessed {
-			htmlBuffer.WriteString("<thead>\n<tr>\n")
-			for _, cell := range cells {
-				htmlBuffer.WriteString("<th>" + strings.TrimSpace(cell) + "</th>\n")
-			}
-			htmlBuffer.WriteString("</tr>\n</thead>\n<tbody>\n")
-			state.tableHeaderProcessed = true
-		} else {
-			htmlBuffer.WriteString("<tr>\n")
-			for _, cell := range cells {
-				htmlBuffer.WriteString("<td>" + strings.TrimSpace(cell) + "</td>\n")
-			}
-			htmlBuffer.WriteString("</tr>\n")
-		}
-	} else {
-		// If the line does not start with a '|' and we are in a table, it's the end of the table
-		if state.inTable {
-			htmlBuffer.WriteString("</tbody>\n</table>\n")
-			state.inTable = false
-		}
+	if codeBlockStartRegex.MatchString(line) {
+		htmlBuffer.WriteString("</code></pre>\n")
+		state.inCodeBlock = false
+		return
 	}
+	htmlBuffer.WriteString(line + "\n")
 }
 
-func parseParagraph(line string, state *markdownParserState, htmlBuffer *strings.Builder) {
-	// Check if the current line is not empty and if we are already in a paragraph
-	if strings.TrimSpace(line) != "" && state.inParagraph {
-		// We are in a paragraph and have encountered a non-empty line, so we end the current paragraph
-		htmlBuffer.WriteString("</p>\n")
-		state.inParagraph = false
+func parseTable(line string, state *markdownParserState, htmlBuffer *strings.Builder) {
+	trimmedLine := strings.TrimSpace(line)
+
+	// A line that is not a table row ends the table.
+	if !strings.HasPrefix(trimmedLine, "|") {
+		closeTable(state, htmlBuffer)
+		return
 	}
 
-	if strings.TrimSpace(line) != "" {
-		// If the line is not empty, we start a new paragraph
-		if !state.inParagraph {
-			htmlBuffer.WriteString("<p>")
-			state.inParagraph = true
-		}
-		htmlBuffer.WriteString(line + "</p>\n") // End the paragraph immediately after the line
-		state.inParagraph = false               // Set the state as not in a paragraph since we close it right away
+	if !state.inTable {
+		htmlBuffer.WriteString("<table>\n")
+		state.inTable = true
 	}
+
+	// A lone pipe on its own line closes the table explicitly.
+	if len(trimmedLine) == 1 {
+		closeTable(state, htmlBuffer)
+		return
+	}
+
+	// The alignment row contributes no output.
+	if headerSeparatorRegex.MatchString(trimmedLine) {
+		return
+	}
+
+	cells := strings.Split(trimmedLine, "|")
+	if len(cells) > 1 && cells[0] == "" {
+		cells = cells[1:]
+	}
+	if len(cells) > 1 && cells[len(cells)-1] == "" {
+		cells = cells[:len(cells)-1]
+	}
+
+	if !state.tableHeaderProcessed {
+		htmlBuffer.WriteString("<thead>\n<tr>\n")
+		for _, cell := range cells {
+			htmlBuffer.WriteString("<th>" + inline(strings.TrimSpace(cell)) + "</th>\n")
+		}
+		htmlBuffer.WriteString("</tr>\n</thead>\n<tbody>\n")
+		state.tableHeaderProcessed = true
+		return
+	}
+
+	htmlBuffer.WriteString("<tr>\n")
+	for _, cell := range cells {
+		htmlBuffer.WriteString("<td>" + inline(strings.TrimSpace(cell)) + "</td>\n")
+	}
+	htmlBuffer.WriteString("</tr>\n")
+}
+
+func parseParagraph(line string, htmlBuffer *strings.Builder) {
+	if strings.TrimSpace(line) == "" {
+		return
+	}
+	htmlBuffer.WriteString("<p>" + inline(line) + "</p>\n")
 }

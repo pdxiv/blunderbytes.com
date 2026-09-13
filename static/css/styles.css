@@ -139,3 +139,63 @@ aside img:hover {
         display: none;
     }
 }
+
+.byline {
+    color: #666;
+    font-size: 13px;
+    margin: -10px 0 15px 0;
+}
+
+.post-body img {
+    max-width: 100%;
+}
+
+.post-body pre {
+    background-color: #f4f4f4;
+    padding: 10px;
+    overflow-x: auto;
+}
+
+.post-body table {
+    border-collapse: collapse;
+}
+
+.post-body th,
+.post-body td {
+    border: 1px solid #ddd;
+    padding: 4px 8px;
+}
+
+article img {
+    max-width: 100%;
+    height: auto;
+}
+
+.pagination {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    padding: 10px 0;
+}
+
+.error {
+    color: #a00;
+}
+
+.inline-form {
+    display: inline;
+    margin: 0;
+}
+
+.link-button {
+    background: none;
+    border: none;
+    color: #333;
+    cursor: pointer;
+    font: inherit;
+    padding: 5px 10px;
+}
+
+.link-button:hover {
+    background-color: #ddd;
+}

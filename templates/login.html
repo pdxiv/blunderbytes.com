@@ -1,11 +1,13 @@
 {{define "content"}}
 <div class="articles-container">
     <h1>Login</h1>
+    {{if .ErrorMessage}}<p class="error">{{.ErrorMessage}}</p>{{end}}
     <form action="/login" method="post">
+        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
         <label for="username">Username:</label>
-        <input type="text" id="username" name="username" required><br><br>
+        <input type="text" id="username" name="username" autocomplete="username" required><br><br>
         <label for="password">Password:</label>
-        <input type="password" id="password" name="password" required><br><br>
+        <input type="password" id="password" name="password" autocomplete="current-password" required><br><br>
         <input type="submit" value="Login">
     </form>
 </div>
